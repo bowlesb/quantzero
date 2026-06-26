@@ -15,7 +15,9 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import multiprocessing as mp
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from quantzero.config import AlpacaConfig, alpaca_config, raw_root, store_root
 from quantzero.driver import EngineDriver
@@ -24,15 +26,26 @@ from quantzero.raw_store import RawReplaySource, RawStore
 from quantzero.sources.alpaca import (
     data_feed,
     fetch_bars_multi,
-    fetch_quotes_multi,
-    fetch_trades_multi,
+    fetch_quotes_day,
+    fetch_trades_day,
     historical_client,
 )
 from quantzero.store import FeatureStore
 
 SET_VERSION = "0.1.0"
-RAW_FETCH_CHUNK = 200
-TICK_FETCH_CHUNK = 50  # trades/quotes are voluminous; smaller chunks bound per-request memory
+RAW_FETCH_CHUNK = 200  # bars are tiny -> many symbols per request
+TICK_CONCURRENCY = 8  # parallel PER-TICKER tick fetches (bounds memory to one name at a time)
+
+# Each fetch thread reuses its own historical client (the SDK's session isn't shared-safe).
+_thread_local = threading.local()
+
+
+def _thread_client(config: AlpacaConfig) -> object:
+    client = getattr(_thread_local, "client", None)
+    if client is None:
+        client = historical_client(config)
+        _thread_local.client = client
+    return client
 
 
 def trading_days(start: dt.date, end: dt.date) -> list[dt.date]:
@@ -50,18 +63,32 @@ def _chunks(items: list[str], size: int) -> list[list[str]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+def _fetch_ticks_one(args: tuple) -> None:
+    """Fetch one ticker-day's trades and/or quotes (per-ticker -> memory-safe). Idempotent."""
+    cfg, raw_root_path, day, day_str, feed, ticker, do_trades, do_quotes = args
+    store = RawStore(raw_root_path)
+    client = _thread_client(cfg)
+    if do_trades and not store.has_trades(day_str, ticker):
+        store.write_trades(day_str, ticker, fetch_trades_day(client, ticker, day, feed))  # type: ignore[arg-type]
+    if do_quotes and not store.has_quotes(day_str, ticker):
+        store.write_quotes(day_str, ticker, fetch_quotes_day(client, ticker, day, feed))  # type: ignore[arg-type]
+
+
 def backfill_raw(
     tickers: list[str],
     days: list[dt.date],
     raw_root_path: str,
     config: AlpacaConfig | None = None,
-    with_ticks: bool = False,
+    fetch_trades: bool = False,
+    fetch_quotes: bool = False,
+    concurrency: int = TICK_CONCURRENCY,
 ) -> int:
-    """Stage 1: land raw bars (and optionally trades+quotes) from Alpaca. Idempotent.
+    """Stage 1: land raw bars (and optionally trades/quotes) from Alpaca. Idempotent/resumable.
 
-    Bars are fetched once per day for all tickers (one request). Trades and quotes are
-    high-volume and fetched per ticker-day; enable with ``with_ticks`` only for the symbols
-    you need tick-level features on.
+    Bars are fetched many-symbols-per-request (tiny). Trades and quotes are fetched PER TICKER
+    in parallel — so memory is bounded to one name at a time (most of the 7000+ universe is
+    thin and fast) and a heavy name never co-buffers with 50 others. Trades and quotes are
+    separate flags so you can keep different lookbacks (e.g. trades 6mo, quotes 5wk).
     """
     cfg = config or alpaca_config()
     client = historical_client(cfg)
@@ -76,16 +103,17 @@ def backfill_raw(
             for ticker, bars in data.items():
                 if store.write_bars(day_str, ticker, bars) is not None:
                     written += 1
-        if with_ticks:
-            missing_trades = [t for t in tickers if not store.has_trades(day_str, t)]
-            for chunk in _chunks(missing_trades, TICK_FETCH_CHUNK):
-                for ticker, trades in fetch_trades_multi(client, chunk, day, feed).items():
-                    store.write_trades(day_str, ticker, trades)
-            missing_quotes = [t for t in tickers if not store.has_quotes(day_str, t)]
-            for chunk in _chunks(missing_quotes, TICK_FETCH_CHUNK):
-                for ticker, quotes in fetch_quotes_multi(client, chunk, day, feed).items():
-                    store.write_quotes(day_str, ticker, quotes)
-        print(f"  raw {day_str}: {len(missing)} bar-tickers (ticks={with_ticks}); {written} total")
+        if fetch_trades or fetch_quotes:
+            jobs = [
+                (cfg, raw_root_path, day, day_str, feed, ticker, fetch_trades, fetch_quotes)
+                for ticker in tickers
+            ]
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                list(pool.map(_fetch_ticks_one, jobs))
+        print(
+            f"  raw {day_str}: {len(missing)} bar-tickers "
+            f"(trades={fetch_trades} quotes={fetch_quotes}); {written} bar-days total"
+        )
     return written
 
 
@@ -134,9 +162,16 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--universe", action="store_true", help="use the latest stored universe")
     parser.add_argument("--start", required=True, help="ET start date YYYY-MM-DD (inclusive)")
     parser.add_argument("--end", required=True, help="ET end date YYYY-MM-DD (inclusive)")
-    parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--with-ticks", action="store_true", help="also fetch/replay trades+quotes")
+    parser.add_argument("--workers", type=int, default=8, help="feature-stage processes")
+    parser.add_argument("--trades", action="store_true", help="fetch trades")
+    parser.add_argument("--quotes", action="store_true", help="fetch quotes")
+    parser.add_argument("--with-ticks", action="store_true", help="fetch both trades and quotes")
+    parser.add_argument(
+        "--concurrency", type=int, default=TICK_CONCURRENCY, help="parallel tick fetch"
+    )
     args = parser.parse_args(argv)
+    fetch_trades = args.trades or args.with_ticks
+    fetch_quotes = args.quotes or args.with_ticks
 
     if args.universe:
         from quantzero.run_sharded import load_universe
@@ -152,9 +187,16 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.stage in ("raw", "both"):
         started = time.perf_counter()
-        n = backfill_raw(tickers, days, raw_root(), with_ticks=args.with_ticks)
+        n = backfill_raw(
+            tickers,
+            days,
+            raw_root(),
+            fetch_trades=fetch_trades,
+            fetch_quotes=fetch_quotes,
+            concurrency=args.concurrency,
+        )
         print(
-            f"stage raw: wrote {n} ticker-days to {raw_root()} in {time.perf_counter()-started:.1f}s"
+            f"stage raw: wrote {n} bar-days to {raw_root()} in {time.perf_counter()-started:.1f}s"
         )
     if args.stage in ("features", "both"):
         started = time.perf_counter()
