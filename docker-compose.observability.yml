@@ -1,0 +1,27 @@
+# Optional local observability stack. The live runner stays on the host and exposes
+# metrics on QZ_METRICS_PORT (default 9300); Prometheus scrapes it via host.docker.internal.
+#
+#   QZ_METRICS_PORT=9300 make live ARGS="--tickers AAPL"
+#   docker compose -f docker-compose.observability.yml up -d
+#   open http://localhost:3001   (Grafana, admin/admin -> "quantzero — feature speed")
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus

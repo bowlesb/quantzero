@@ -65,6 +65,7 @@ bars through the engine first (via REST) so caches are warm on the first live ba
 | `quantzero/sources/` | `simulation`, `alpaca` (replay), live (in `run_live`) |
 | `quantzero/store.py` | versioned, source-transparent parquet feature store |
 | `quantzero/universe.py` | daily tradable universe (see `docs/UNIVERSE.md`) |
+| `quantzero/sharding.py` | deterministic ticker→worker sharding; router + worker processes |
 | `quantzero/latency.py` | per-feature latency harness |
 | `quantzero/metrics.py` | Prometheus metrics (Grafana in `grafana/`) |
 
