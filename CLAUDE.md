@@ -21,7 +21,7 @@ path unless the window is tiny.
 - `sources/` — `simulation`, `replay` (Alpaca historical), `live` (Alpaca websocket). Same core.
 - `store.py` — versioned, source-transparent parquet feature store.
 - `universe.py` — daily tradable-ticker universe construction (see docs/UNIVERSE.md).
-- `bench.py` — standalone per-feature latency benchmark (no simulation needed).
+- `latency.py` — per-feature latency harness; the standard way to time any feature (warmed caches, realistic input, percentiles, state-only baseline).
 - `metrics.py` — Prometheus latency metrics.
 
 ## Code standards (enforced by `make qa`)
@@ -42,7 +42,7 @@ regardless of origin. No "done" with failing checks or uncommitted changes.
 
 ## Running
 - `make test` — full test suite.
-- `make bench` — per-feature latency report.
+- `make latency` — per-feature latency harness (warmed caches, realistic input, percentiles).
 - `make universe` — build today's ticker universe to the store.
 - `make live ARGS="--tickers AAPL,MSFT,NVDA"` — stream live and print feature vectors + latency.
 
