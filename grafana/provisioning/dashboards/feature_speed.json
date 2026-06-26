@@ -31,19 +31,9 @@
       ]
     },
     {
-      "type": "bargauge",
-      "title": "Per-group steady-state cost (from benchmark)",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 8 },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "options": { "orientation": "horizontal", "displayMode": "gradient" },
-      "targets": [
-        { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(qz_feature_group_seconds_bucket[5m])) by (le, group))", "legendFormat": "{{group}}" }
-      ]
-    },
-    {
       "type": "stat",
-      "title": "Vectors / min",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 8 },
+      "title": "Vectors / min (per-group latency: `make latency`)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "targets": [
         { "refId": "A", "expr": "sum(rate(qz_vectors_total[1m])) * 60", "legendFormat": "vectors/min" }

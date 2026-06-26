@@ -29,12 +29,6 @@ BAR_TO_VECTOR_SECONDS = Histogram(
     "Wall-clock latency from the bar's timestamp to the computed feature vector.",
     buckets=_LATENCY_BUCKETS,
 )
-FEATURE_GROUP_SECONDS = Histogram(
-    "qz_feature_group_seconds",
-    "Per-group compute time (populated by the benchmark harness).",
-    labelnames=("group",),
-    buckets=_COMPUTE_BUCKETS,
-)
 VECTORS_TOTAL = Counter(
     "qz_vectors_total",
     "Feature vectors computed.",

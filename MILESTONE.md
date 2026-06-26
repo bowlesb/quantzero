@@ -12,7 +12,7 @@ minute bar for a ticker — with tests and a script runnable at market open.
 | 20 feature groups (53 columns) | ✅ done | `quantzero/features/` |
 | Simulation source (fake quotes/trades/minutes) | ✅ done | `quantzero/sources/simulation.py` |
 | Tests (caches, features, engine, no-lookahead, store, universe) | ✅ 21 passing | `tests/` |
-| Per-feature latency benchmark (outside simulation) | ✅ done | `quantzero/bench.py` |
+| Per-feature latency harness (reusable abstraction) | ✅ done | `quantzero/latency.py` |
 | Prometheus metrics + Grafana dashboard | ✅ done | `quantzero/metrics.py`, `grafana/` |
 | Alpaca live streaming → vectors | ✅ done | `quantzero/run_live.py` |
 | Backfill as replay (same core) | ✅ done | `quantzero/sources/alpaca.py` (`ReplaySource`) |
@@ -21,7 +21,7 @@ minute bar for a ticker — with tests and a script runnable at market open.
 
 ## Measured
 - Full 53-feature vector: ~34µs mean / ~46µs p99 per bar (simulation).
-- Per-feature steady-state: sub-2µs each, ~17µs total (`make bench`).
+- Per-feature **own marginal cost** 0.5–2.3µs each (state-only baseline ~0.9µs), ~21µs total (`make latency`).
 - **Real Alpaca data validated**: replayed AAPL 2026-06-24 (858 minute bars, SIP feed) end
   to end through the engine at ~29µs/vector. Credentials + feed entitlement confirmed.
   Bars-only replay leaves the 7 microstructure features (trade/quote) NaN — those populate
