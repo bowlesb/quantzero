@@ -18,6 +18,21 @@ def _vectors() -> list:
     return list(driver.run_source(SimulationSource(config)))
 
 
+def test_multi_ticker_same_minute_no_collision(tmp_path) -> None:
+    """Many tickers share a minute's ts_ns; their files must not overwrite each other."""
+    tickers = ["AAA", "BBB", "CCC"]
+    config = SimulationConfig(tickers=tickers, n_minutes=10, seed=2)
+    driver = EngineDriver(tickers, default_features())
+    vectors = list(driver.run_source(SimulationSource(config)))
+    FeatureStore(tmp_path, SET_VERSION, "sim").write_many(vectors)
+
+    start = min(v.ts_ns for v in vectors)
+    end = max(v.ts_ns for v in vectors) + 1
+    frame = read_features(tmp_path, SET_VERSION, start, end, source="auto", provisional="sim")
+    assert frame.height == len(tickers) * config.n_minutes
+    assert set(frame["ticker"].unique().to_list()) == set(tickers)
+
+
 def test_write_and_read_roundtrip(tmp_path) -> None:
     vectors = _vectors()
     FeatureStore(tmp_path, SET_VERSION, "sim").write_many(vectors)

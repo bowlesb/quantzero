@@ -44,3 +44,6 @@ live:
 
 dashboard:
 	$(PY) -m quantzero.dashboard.app
+
+dashboard-build:
+	cd quantzero/dashboard/frontend && npm install && npm run build

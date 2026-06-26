@@ -55,7 +55,10 @@ class FeatureStore:
         day = ns_to_et(vector.ts_ns).date().isoformat()
         directory = _partition_dir(self.root, self.set_version, self.source, day)
         directory.mkdir(parents=True, exist_ok=True)
-        path = directory / f"data-{vector.ts_ns}.parquet"
+        # Filename must be unique per (ticker, minute): many tickers share a minute's ts_ns,
+        # so keying on ts_ns alone would let them overwrite each other.
+        safe_ticker = vector.ticker.replace("/", "_")
+        path = directory / f"data-{safe_ticker}-{vector.ts_ns}.parquet"
         frame = pl.DataFrame([vector_to_row(vector)])
         tmp = path.with_suffix(".parquet.tmp")
         frame.write_parquet(tmp)

@@ -61,6 +61,7 @@ class LatencyStats:
     mean_ns: float
     p50_ns: float
     p90_ns: float
+    p95_ns: float
     p99_ns: float
     max_ns: float
 
@@ -71,6 +72,7 @@ class LatencyStats:
             mean_ns=float(samples.mean()),
             p50_ns=float(np.percentile(samples, 50)),
             p90_ns=float(np.percentile(samples, 90)),
+            p95_ns=float(np.percentile(samples, 95)),
             p99_ns=float(np.percentile(samples, 99)),
             max_ns=float(samples.max()),
         )
