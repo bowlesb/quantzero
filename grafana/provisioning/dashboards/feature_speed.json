@@ -1,0 +1,53 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "title": "quantzero — feature speed",
+  "uid": "qz-feature-speed",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "5s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Feature vector compute time (per bar)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "p50", "expr": "histogram_quantile(0.50, sum(rate(qz_feature_compute_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "refId": "p95", "expr": "histogram_quantile(0.95, sum(rate(qz_feature_compute_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "refId": "p99", "expr": "histogram_quantile(0.99, sum(rate(qz_feature_compute_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Bar -> vector latency",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "p50", "expr": "histogram_quantile(0.50, sum(rate(qz_bar_to_vector_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "refId": "p95", "expr": "histogram_quantile(0.95, sum(rate(qz_bar_to_vector_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Per-group steady-state cost (from benchmark)",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "orientation": "horizontal", "displayMode": "gradient" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(qz_feature_group_seconds_bucket[5m])) by (le, group))", "legendFormat": "{{group}}" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Vectors / min",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(qz_vectors_total[1m])) * 60", "legendFormat": "vectors/min" }
+      ]
+    }
+  ]
+}

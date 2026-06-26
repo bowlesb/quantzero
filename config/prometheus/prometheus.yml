@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # The live runner exposes metrics on QZ_METRICS_PORT (default 9300) on the host.
+  - job_name: quantzero
+    static_configs:
+      - targets: ["host.docker.internal:9300"]
