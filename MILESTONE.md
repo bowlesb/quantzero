@@ -22,6 +22,10 @@ minute bar for a ticker — with tests and a script runnable at market open.
 ## Measured
 - Full 53-feature vector: ~34µs mean / ~46µs p99 per bar (simulation).
 - Per-feature steady-state: sub-2µs each, ~17µs total (`make bench`).
+- **Real Alpaca data validated**: replayed AAPL 2026-06-24 (858 minute bars, SIP feed) end
+  to end through the engine at ~29µs/vector. Credentials + feed entitlement confirmed.
+  Bars-only replay leaves the 7 microstructure features (trade/quote) NaN — those populate
+  from live ticks at the open.
 
 ## How it ships (PRs, none merged — review in order)
 - **PR1 — engine core + features + simulation + tests.** The reviewable heart, no network.
