@@ -8,6 +8,7 @@ from quantzero.driver import EngineDriver
 from quantzero.features import default_features
 from quantzero.sharding import ShardedRouter, ShardedRunner, assign_tickers, worker_for
 from quantzero.sources.simulation import SimulationConfig, SimulationSource
+from quantzero.store import StoreConfig, read_features
 
 TICKERS = ["AAPL", "MSFT", "NVDA", "AMD", "TSLA", "AMZN", "META", "GOOGL"]
 
@@ -51,3 +52,18 @@ def test_multiprocess_runner_smoke() -> None:
     # each ticker landed on exactly the worker its hash assigns
     for summary in summaries:
         assert summary.worker_id == worker_for(summary.ticker, 3)
+
+
+def test_workers_write_to_store_async(tmp_path) -> None:
+    """Workers persist every computed vector via their async StoreWriter (across processes)."""
+    config = SimulationConfig(tickers=TICKERS, n_minutes=20, seed=4)
+    store_config = StoreConfig(str(tmp_path), "test", "sim")
+    runner = ShardedRunner(TICKERS, n_workers=4, store_config=store_config)
+    summaries = runner.run_source(SimulationSource(config))
+
+    events = list(SimulationSource(config).iter_events())
+    start = min(e.ts_ns for e in events)
+    end = max(e.ts_ns for e in events) + 1
+    frame = read_features(tmp_path, "test", start, end, source="auto", provisional="sim")
+    assert frame.height == len(summaries) == config.n_minutes * len(TICKERS)
+    assert set(frame["ticker"].unique().to_list()) == set(TICKERS)

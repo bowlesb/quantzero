@@ -19,6 +19,9 @@ Each file holds rows keyed by ``(ticker, ts_ns)`` with one column per feature.
 from __future__ import annotations
 
 import datetime as dt
+import queue
+import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 import polars as pl
@@ -28,6 +31,15 @@ from quantzero.engine import FeatureVector
 
 KEY_COLUMNS = ("ticker", "ts_ns")
 PROVISIONAL_SOURCES = ("stream", "sim")
+
+
+@dataclass(frozen=True)
+class StoreConfig:
+    """Minimal, picklable description of where a worker should persist vectors."""
+
+    root: str
+    set_version: str
+    source: str
 
 
 def _partition_dir(root: str | Path, set_version: str, source: str, day: str) -> Path:
@@ -69,6 +81,48 @@ class FeatureStore:
         for vector in vectors:
             self.write(vector)
         return len(vectors)
+
+
+class StoreWriter:
+    """Persists feature vectors on a background thread, off the compute critical path.
+
+    ``submit`` is non-blocking: it enqueues the vector and returns immediately so the
+    per-bar feature computation never waits on parquet I/O. A bounded queue protects memory;
+    if it ever fills (writer can't keep up), the oldest-in vector is dropped and counted
+    rather than blocking the engine.
+    """
+
+    def __init__(self, config: StoreConfig, max_queue: int = 100_000) -> None:
+        self._store = FeatureStore(config.root, config.set_version, config.source)
+        self._queue: queue.Queue[FeatureVector | None] = queue.Queue(maxsize=max_queue)
+        self._thread = threading.Thread(target=self._run, name="store-writer", daemon=True)
+        self.submitted = 0
+        self.written = 0
+        self.dropped = 0
+
+    def start(self) -> StoreWriter:
+        self._thread.start()
+        return self
+
+    def submit(self, vector: FeatureVector) -> None:
+        self.submitted += 1
+        try:
+            self._queue.put_nowait(vector)
+        except queue.Full:
+            self.dropped += 1
+
+    def _run(self) -> None:
+        while True:
+            vector = self._queue.get()
+            if vector is None:
+                break
+            self._store.write(vector)
+            self.written += 1
+
+    def stop(self, timeout: float = 30.0) -> None:
+        """Signal the writer to drain its queue and finish."""
+        self._queue.put(None)
+        self._thread.join(timeout=timeout)
 
 
 def _scan_source(

@@ -28,6 +28,7 @@ from quantzero.events import Event
 from quantzero.feature import Feature
 from quantzero.features import default_features
 from quantzero.sources.base import EventSource
+from quantzero.store import StoreConfig, StoreWriter
 
 
 def worker_for(ticker: str, n_workers: int) -> int:
@@ -86,15 +87,23 @@ def _worker_main(
     tickers: list[str],
     in_queue: Queue[Event | None],
     out_queue: Queue[VectorSummary | _WorkerDone],
+    store_config: StoreConfig | None,
 ) -> None:
-    """Worker process: drive an engine over assigned tickers until a sentinel arrives."""
+    """Worker process: drive an engine over assigned tickers until a sentinel arrives.
+
+    When ``store_config`` is set, each vector is handed to an async StoreWriter (a background
+    thread) so persistence never blocks the per-bar compute loop.
+    """
     driver = EngineDriver(tickers, default_features())
+    writer = StoreWriter(store_config).start() if store_config is not None else None
     while True:
         event = in_queue.get()
         if event is None:
             break
         vector = driver.process(event)
         if vector is not None:
+            if writer is not None:
+                writer.submit(vector)
             n_valid = int(np.count_nonzero(~np.isnan(vector.values)))
             out_queue.put(
                 VectorSummary(
@@ -106,15 +115,20 @@ def _worker_main(
                     n_valid=n_valid,
                 )
             )
+    if writer is not None:
+        writer.stop()
     out_queue.put(_WorkerDone(worker_id))
 
 
 class ShardedRunner:
     """Spawns worker processes and routes events to them; drains their result summaries."""
 
-    def __init__(self, tickers: list[str], n_workers: int) -> None:
+    def __init__(
+        self, tickers: list[str], n_workers: int, store_config: StoreConfig | None = None
+    ) -> None:
         self.tickers = tickers
         self.n_workers = n_workers
+        self.store_config = store_config
         self.assignment = assign_tickers(tickers, n_workers)
         # 'spawn' avoids the fork-in-a-multi-threaded-process deadlock the router risks
         # (it runs a drain thread); workers are long-lived so startup cost is irrelevant.
@@ -127,7 +141,13 @@ class ShardedRunner:
         for worker_id in range(self.n_workers):
             proc = self._ctx.Process(
                 target=_worker_main,
-                args=(worker_id, self.assignment[worker_id], self._in[worker_id], self._out),
+                args=(
+                    worker_id,
+                    self.assignment[worker_id],
+                    self._in[worker_id],
+                    self._out,
+                    self.store_config,
+                ),
                 daemon=True,
             )
             proc.start()

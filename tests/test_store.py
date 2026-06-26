@@ -7,7 +7,7 @@ import numpy as np
 from quantzero.driver import EngineDriver
 from quantzero.features import default_features
 from quantzero.sources.simulation import SimulationConfig, SimulationSource
-from quantzero.store import FeatureStore, read_features, settled_dates
+from quantzero.store import FeatureStore, StoreConfig, StoreWriter, read_features, settled_dates
 
 SET_VERSION = "test"
 
@@ -16,6 +16,21 @@ def _vectors() -> list:
     config = SimulationConfig(tickers=["AAA"], n_minutes=20, seed=1)
     driver = EngineDriver(config.tickers, default_features())
     return list(driver.run_source(SimulationSource(config)))
+
+
+def test_store_writer_async_drains(tmp_path) -> None:
+    vectors = _vectors()
+    writer = StoreWriter(StoreConfig(str(tmp_path), SET_VERSION, "stream")).start()
+    for vector in vectors:
+        writer.submit(vector)
+    writer.stop()
+    assert writer.written == len(vectors)
+    assert writer.dropped == 0
+
+    start = min(v.ts_ns for v in vectors)
+    end = max(v.ts_ns for v in vectors) + 1
+    frame = read_features(tmp_path, SET_VERSION, start, end, source="auto", provisional="stream")
+    assert frame.height == len(vectors)
 
 
 def test_multi_ticker_same_minute_no_collision(tmp_path) -> None:
