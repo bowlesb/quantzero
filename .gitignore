@@ -1,0 +1,30 @@
+# Secrets
+.env
+*.key
+age-key.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Data / store artifacts
+store/
+data/
+*.parquet
+benchmarks/*.json
+
+# Editor
+.idea/
+.vscode/
+*.swp

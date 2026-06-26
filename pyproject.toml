@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quantzero"
+version = "0.1.0"
+description = "Low-latency trading feature platform: stream Alpaca data, emit feature vectors per minute bar."
+requires-python = ">=3.11"
+dependencies = [
+    "alpaca-py>=0.30",
+    "numpy>=1.26",
+    "pyarrow>=15",
+    "polars>=1.0",
+    "python-dotenv>=1.0",
+    "prometheus-client>=0.19",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "autoflake>=2.2",
+    "isort>=5.13",
+    "ruff>=0.5",
+    "black>=24.0",
+    "mypy>=1.8",
+]
+
+[tool.setuptools.packages.find]
+include = ["quantzero*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP"]
+# B027: empty methods in the Feature ABC are intentional optional hooks (default no-op).
+ignore = ["E501", "B027"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+ignore_missing_imports = true
