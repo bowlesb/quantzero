@@ -21,7 +21,13 @@ from quantzero.config import AlpacaConfig, alpaca_config, raw_root, store_root
 from quantzero.driver import EngineDriver
 from quantzero.features import default_features
 from quantzero.raw_store import RawReplaySource, RawStore
-from quantzero.sources.alpaca import data_feed, fetch_bars_multi, historical_client
+from quantzero.sources.alpaca import (
+    data_feed,
+    fetch_bars_multi,
+    fetch_quotes_day,
+    fetch_trades_day,
+    historical_client,
+)
 from quantzero.store import FeatureStore
 
 SET_VERSION = "0.1.0"
@@ -48,8 +54,14 @@ def backfill_raw(
     days: list[dt.date],
     raw_root_path: str,
     config: AlpacaConfig | None = None,
+    with_ticks: bool = False,
 ) -> int:
-    """Stage 1: land raw minute bars from Alpaca into the raw store. Idempotent (skips present)."""
+    """Stage 1: land raw bars (and optionally trades+quotes) from Alpaca. Idempotent.
+
+    Bars are fetched once per day for all tickers (one request). Trades and quotes are
+    high-volume and fetched per ticker-day; enable with ``with_ticks`` only for the symbols
+    you need tick-level features on.
+    """
     cfg = config or alpaca_config()
     client = historical_client(cfg)
     feed = data_feed(cfg)
@@ -58,14 +70,18 @@ def backfill_raw(
     for day in days:
         day_str = day.isoformat()
         missing = [t for t in tickers if not store.has_bars(day_str, t)]
-        if not missing:
-            continue
         for chunk in _chunks(missing, RAW_FETCH_CHUNK):
             data = fetch_bars_multi(client, chunk, day, feed)
             for ticker, bars in data.items():
                 if store.write_bars(day_str, ticker, bars) is not None:
                     written += 1
-        print(f"  raw {day_str}: {len(missing)} tickers fetched ({written} ticker-days total)")
+        if with_ticks:
+            for ticker in tickers:
+                if not store.has_trades(day_str, ticker):
+                    store.write_trades(day_str, ticker, fetch_trades_day(client, ticker, day, feed))
+                if not store.has_quotes(day_str, ticker):
+                    store.write_quotes(day_str, ticker, fetch_quotes_day(client, ticker, day, feed))
+        print(f"  raw {day_str}: {len(missing)} bar-tickers (ticks={with_ticks}); {written} total")
     return written
 
 
@@ -115,6 +131,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--start", required=True, help="ET start date YYYY-MM-DD (inclusive)")
     parser.add_argument("--end", required=True, help="ET end date YYYY-MM-DD (inclusive)")
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--with-ticks", action="store_true", help="also fetch/replay trades+quotes")
     args = parser.parse_args(argv)
 
     if args.universe:
@@ -131,7 +148,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.stage in ("raw", "both"):
         started = time.perf_counter()
-        n = backfill_raw(tickers, days, raw_root())
+        n = backfill_raw(tickers, days, raw_root(), with_ticks=args.with_ticks)
         print(
             f"stage raw: wrote {n} ticker-days to {raw_root()} in {time.perf_counter()-started:.1f}s"
         )

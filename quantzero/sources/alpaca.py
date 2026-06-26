@@ -18,6 +18,7 @@ from alpaca.data.timeframe import TimeFrame
 from quantzero.clock import date_to_ns_range, to_ns
 from quantzero.config import AlpacaConfig, alpaca_config
 from quantzero.events import Event, MinuteBar, Quote, Trade
+from quantzero.sources.base import order_events_per_minute
 
 
 def data_feed(config: AlpacaConfig) -> DataFeed:
@@ -135,24 +136,6 @@ def fetch_quotes_day(
         )
         for q in quotes
     ]
-
-
-_NS_PER_MINUTE = 60_000_000_000
-
-
-def order_events_per_minute(events: list[Event]) -> list[Event]:
-    """Stable-sort events so each minute's ticks precede that minute's bar.
-
-    Sort key is (minute_bucket, kind_rank, ts). Bars rank after ticks within their minute,
-    matching how the live stream delivers a bar only at minute close.
-    """
-
-    def sort_key(event: Event) -> tuple[int, int, int]:
-        minute_bucket = event.ts_ns // _NS_PER_MINUTE
-        kind_rank = 1 if isinstance(event, MinuteBar) else 0
-        return (minute_bucket, kind_rank, event.ts_ns)
-
-    return sorted(events, key=sort_key)
 
 
 class ReplaySource:

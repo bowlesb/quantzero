@@ -31,8 +31,10 @@ def test_features_warm_up() -> None:
     vectors = [v for v in driver.run_source(SimulationSource(config)) if v.ticker == "AAA"]
     last = vectors[-1]
     n_valid = int(np.count_nonzero(~np.isnan(last.values)))
-    # After a full session almost everything should be defined.
-    assert n_valid >= last.values.shape[0] - 2
+    # After a full session almost everything should be defined. The simulation feeds a
+    # CONSTANT per-minute tick rate, so flowfreq's rate z-scores stay NaN (std 0); they
+    # populate on real data where the rate varies. Allow a few such NaNs.
+    assert n_valid >= last.values.shape[0] - 4
 
 
 def test_determinism() -> None:

@@ -5,9 +5,12 @@ from __future__ import annotations
 import datetime as dt
 
 from quantzero.backfill import backfill_features
+from quantzero.events import Quote, Trade
 from quantzero.raw_store import RawReplaySource, RawStore
 from quantzero.store import day_ns_bounds, read_features
 from tests.helpers import make_bar
+
+_NS_PER_MINUTE = 60_000_000_000
 
 DAY = "2026-06-24"  # tests.helpers anchors bars to this ET date
 
@@ -27,6 +30,37 @@ def test_raw_store_roundtrip(tmp_path) -> None:
 
     events = list(RawReplaySource(["AAA"], DAY, tmp_path).iter_events())
     assert [e.ts_ns for e in events] == [b.ts_ns for b in bars]
+
+
+def test_raw_trades_quotes_roundtrip_and_merge_order(tmp_path) -> None:
+    bars = [make_bar("AAA", minute, 100.0 + minute) for minute in range(2)]
+    base = bars[0].ts_ns
+    store = RawStore(tmp_path)
+    store.write_bars(DAY, "AAA", bars)
+    store.write_trades(
+        DAY,
+        "AAA",
+        [
+            Trade("AAA", base + 1000, 100.0, 5.0),
+            Trade("AAA", base + _NS_PER_MINUTE + 1000, 101.0, 3.0),
+        ],
+    )
+    store.write_quotes(
+        DAY,
+        "AAA",
+        [
+            Quote("AAA", base + 500, 99.9, 100.1, 10, 10),
+            Quote("AAA", base + 600, 99.8, 100.2, 8, 12),
+        ],
+    )
+    assert store.has_trades(DAY, "AAA") and store.has_quotes(DAY, "AAA")
+    assert len(store.read_trades(DAY, "AAA")) == 2
+    assert len(store.read_quotes(DAY, "AAA")) == 2
+
+    events = list(RawReplaySource(["AAA"], DAY, tmp_path, with_ticks=True).iter_events())
+    kinds = [type(e).__name__ for e in events]
+    # minute 0: its two quotes and one trade, THEN the bar (bar ranks after ticks in its minute)
+    assert kinds[:4] == ["Quote", "Quote", "Trade", "MinuteBar"]
 
 
 def test_backfill_features_reads_raw_and_batches(tmp_path) -> None:

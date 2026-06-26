@@ -57,20 +57,27 @@ class FeatureEngine:
         self.on_quote(event)
         return None
 
+    def _ensure_session(self, ts_ns: int) -> None:
+        """Build (or rebuild on rollover) the session's features on the FIRST event of any
+        type — so trades/quotes that precede a session's first bar still reach the caches."""
+        session_date = et_session_date(ts_ns)
+        if not self._features or session_date != self.state.session_date:
+            self._build_for_session(session_date)
+
     def on_quote(self, quote: Quote) -> None:
+        self._ensure_session(quote.ts_ns)
         self.state.on_quote(quote)
         for feature in self._features:
             feature.on_quote()
 
     def on_trade(self, trade: Trade) -> None:
+        self._ensure_session(trade.ts_ns)
         self.state.on_trade(trade)
         for feature in self._features:
             feature.on_trade()
 
     def on_minute(self, bar: MinuteBar) -> FeatureVector:
-        session_date = et_session_date(bar.ts_ns)
-        if not self._features or session_date != self.state.session_date:
-            self._build_for_session(session_date)
+        self._ensure_session(bar.ts_ns)
         self.state.on_minute(bar)
 
         start = time.perf_counter_ns()

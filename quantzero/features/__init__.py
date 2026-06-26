@@ -6,7 +6,15 @@ Import order is the feature-vector column order. Keep related groups together.
 from quantzero.feature import Feature, all_features
 
 # Side-effecting imports: each module's @register calls populate the global registry.
-from quantzero.features import flow, price, rangepos, session, volatility, volume  # noqa: F401
+from quantzero.features import (  # noqa: F401
+    flow,
+    microstructure,
+    price,
+    rangepos,
+    session,
+    volatility,
+    volume,
+)
 
 
 def default_features() -> list[type[Feature]]:
