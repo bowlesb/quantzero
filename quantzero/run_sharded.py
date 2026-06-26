@@ -22,8 +22,11 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import pathlib
+import signal
 import time
+from types import FrameType
 
 import numpy as np
 import polars as pl
@@ -130,6 +133,16 @@ def run_live(tickers: list[str], n_workers: int, with_ticks: bool, sample_every:
     runner = ShardedRunner(tickers, n_workers, store_config)
     runner.start()
     runner.drain_forever(LiveSink(sample_every))
+
+    # Graceful shutdown: SIGINT/SIGTERM must stop the workers (sentinels -> drain writers ->
+    # join), otherwise a hard kill orphans the spawned worker processes.
+    def _shutdown(signum: int, frame: FrameType | None) -> None:
+        print("\nshutting down workers…")
+        runner.shutdown()
+        os._exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
 
     stream = StockDataStream(config.key_id, config.secret_key, feed=data_feed(config))
 

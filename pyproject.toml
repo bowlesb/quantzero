@@ -16,6 +16,9 @@ dependencies = [
     "prometheus-client>=0.19",
     "fastapi>=0.109",
     "uvicorn>=0.27",
+    # alpaca-py leaves websockets unpinned; 14+ renamed the connect kwarg it relies on
+    # (extra_headers -> additional_headers), breaking the live stream. Pin to the 13.x line.
+    "websockets>=13,<14",
 ]
 
 [project.optional-dependencies]
