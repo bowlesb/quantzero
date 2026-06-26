@@ -7,7 +7,6 @@ import math
 import numpy as np
 
 from quantzero.caches import Ewma, RollingMax, RollingMin, RunningExtrema
-from quantzero.events import MinuteBar
 from quantzero.feature import Feature, register
 
 ROLLING_RANGE_WINDOWS = (15, 60)
@@ -27,9 +26,10 @@ class SessionRange(Feature):
         self._high = RunningExtrema()
         self._low = RunningExtrema()
 
-    def on_minute(self, bar: MinuteBar) -> None:
-        self._high.push(bar.high)
-        self._low.push(bar.low)
+    def on_minute(self) -> None:
+        minutes = self.state.minutes
+        self._high.push(minutes.last_high)
+        self._low.push(minutes.last_low)
 
     def values(self) -> np.ndarray:
         if not self._high.initialized:
@@ -54,10 +54,12 @@ class RollingRangePosition(Feature):
         self._max = {w: RollingMax(w) for w in ROLLING_RANGE_WINDOWS}
         self._min = {w: RollingMin(w) for w in ROLLING_RANGE_WINDOWS}
 
-    def on_minute(self, bar: MinuteBar) -> None:
+    def on_minute(self) -> None:
+        high = self.state.minutes.last_high
+        low = self.state.minutes.last_low
         for window in ROLLING_RANGE_WINDOWS:
-            self._max[window].push(bar.high)
-            self._min[window].push(bar.low)
+            self._max[window].push(high)
+            self._min[window].push(low)
 
     def values(self) -> np.ndarray:
         close = self.state.minutes.last_close
@@ -82,12 +84,13 @@ class Rsi(Feature):
         self._loss = Ewma(RSI_SPAN)
         self._prev_close = math.nan
 
-    def on_minute(self, bar: MinuteBar) -> None:
+    def on_minute(self) -> None:
+        close = self.state.minutes.last_close
         if self._prev_close == self._prev_close:
-            delta = bar.close - self._prev_close
+            delta = close - self._prev_close
             self._gain.push(max(delta, 0.0))
             self._loss.push(max(-delta, 0.0))
-        self._prev_close = bar.close
+        self._prev_close = close
 
     def values(self) -> np.ndarray:
         if not self._gain.initialized:

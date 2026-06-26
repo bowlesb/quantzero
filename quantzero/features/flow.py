@@ -13,7 +13,6 @@ import math
 import numpy as np
 
 from quantzero.caches import Ewma
-from quantzero.events import MinuteBar, Quote, Trade
 from quantzero.feature import Feature, register
 
 SPREAD_EWMA_SPAN = 50
@@ -33,7 +32,10 @@ class TradeFlow(Feature):
         self._minute_volume = 0.0
         self._ofi_1m = math.nan
 
-    def on_trade(self, trade: Trade) -> None:
+    def on_trade(self) -> None:
+        trade = self.state.last_trade
+        if trade is None:
+            return
         quote = self.state.last_quote
         reference = quote.mid if quote is not None else trade.price
         sign = 1.0 if trade.price >= reference else -1.0
@@ -43,7 +45,7 @@ class TradeFlow(Feature):
         self._minute_signed += signed
         self._minute_volume += trade.size
 
-    def on_minute(self, bar: MinuteBar) -> None:
+    def on_minute(self) -> None:
         self._ofi_1m = (
             self._minute_signed / self._minute_volume if self._minute_volume > 0 else math.nan
         )
@@ -91,7 +93,10 @@ class QuoteDynamics(Feature):
         self._spread_ewma = Ewma(SPREAD_EWMA_SPAN)
         self._last_spread_bps = math.nan
 
-    def on_quote(self, quote: Quote) -> None:
+    def on_quote(self) -> None:
+        quote = self.state.last_quote
+        if quote is None:
+            return
         mid = quote.mid
         if mid > 0:
             spread_bps = (quote.ask - quote.bid) / mid * 1e4

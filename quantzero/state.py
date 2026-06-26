@@ -88,8 +88,32 @@ class MinuteBuffer:
         return self.volume[: self.n]
 
     @property
+    def last_open(self) -> float:
+        return float(self.open[self.n - 1]) if self.n else float("nan")
+
+    @property
+    def last_high(self) -> float:
+        return float(self.high[self.n - 1]) if self.n else float("nan")
+
+    @property
+    def last_low(self) -> float:
+        return float(self.low[self.n - 1]) if self.n else float("nan")
+
+    @property
     def last_close(self) -> float:
         return float(self.close[self.n - 1]) if self.n else float("nan")
+
+    @property
+    def last_volume(self) -> float:
+        return float(self.volume[self.n - 1]) if self.n else float("nan")
+
+    @property
+    def last_trade_count(self) -> int:
+        return int(self.trade_count[self.n - 1]) if self.n else 0
+
+    @property
+    def last_ts_ns(self) -> int:
+        return int(self.ts_ns[self.n - 1]) if self.n else 0
 
 
 class TickerState:

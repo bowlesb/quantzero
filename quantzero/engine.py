@@ -60,12 +60,12 @@ class FeatureEngine:
     def on_quote(self, quote: Quote) -> None:
         self.state.on_quote(quote)
         for feature in self._features:
-            feature.on_quote(quote)
+            feature.on_quote()
 
     def on_trade(self, trade: Trade) -> None:
         self.state.on_trade(trade)
         for feature in self._features:
-            feature.on_trade(trade)
+            feature.on_trade()
 
     def on_minute(self, bar: MinuteBar) -> FeatureVector:
         session_date = et_session_date(bar.ts_ns)
@@ -77,7 +77,7 @@ class FeatureEngine:
         out = np.empty(self._width, dtype=np.float64)
         offset = 0
         for feature in self._features:
-            feature.on_minute(bar)
+            feature.on_minute()
             block = feature.values()
             width = len(feature.columns)
             out[offset : offset + width] = block

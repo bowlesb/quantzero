@@ -7,7 +7,6 @@ import math
 import numpy as np
 
 from quantzero.caches import RollingMoments, RollingSum
-from quantzero.events import MinuteBar
 from quantzero.feature import Feature, register
 
 VOL_WINDOWS = (5, 15, 30)
@@ -27,12 +26,13 @@ class RollingVolatility(Feature):
         self._moments = {w: RollingMoments(w) for w in VOL_WINDOWS}
         self._prev_close = math.nan
 
-    def on_minute(self, bar: MinuteBar) -> None:
+    def on_minute(self) -> None:
+        close = self.state.minutes.last_close
         if self._prev_close > 0:
-            ret = bar.close / self._prev_close - 1.0
+            ret = close / self._prev_close - 1.0
             for moments in self._moments.values():
                 moments.push(ret)
-        self._prev_close = bar.close
+        self._prev_close = close
 
     def values(self) -> np.ndarray:
         return np.array([self._moments[w].std for w in VOL_WINDOWS])
@@ -49,13 +49,14 @@ class RealizedVolatility(Feature):
         self._sumsq = {w: RollingSum(w) for w in VOL_WINDOWS}
         self._prev_close = math.nan
 
-    def on_minute(self, bar: MinuteBar) -> None:
+    def on_minute(self) -> None:
+        close = self.state.minutes.last_close
         if self._prev_close > 0:
-            ret = bar.close / self._prev_close - 1.0
+            ret = close / self._prev_close - 1.0
             squared = ret * ret
             for cache in self._sumsq.values():
                 cache.push(squared)
-        self._prev_close = bar.close
+        self._prev_close = close
 
     def values(self) -> np.ndarray:
         return np.array(
@@ -77,18 +78,21 @@ class Atr(Feature):
         self._tr = {w: RollingSum(w) for w in ATR_WINDOWS}
         self._prev_close = math.nan
 
-    def on_minute(self, bar: MinuteBar) -> None:
+    def on_minute(self) -> None:
+        minutes = self.state.minutes
+        high = minutes.last_high
+        low = minutes.last_low
         if self._prev_close == self._prev_close:
             true_range = max(
-                bar.high - bar.low,
-                abs(bar.high - self._prev_close),
-                abs(bar.low - self._prev_close),
+                high - low,
+                abs(high - self._prev_close),
+                abs(low - self._prev_close),
             )
         else:
-            true_range = bar.high - bar.low
+            true_range = high - low
         for cache in self._tr.values():
             cache.push(true_range)
-        self._prev_close = bar.close
+        self._prev_close = minutes.last_close
 
     def values(self) -> np.ndarray:
         return np.array([self._tr[w].mean for w in ATR_WINDOWS])
@@ -104,8 +108,8 @@ class Bollinger(Feature):
     def setup(self) -> None:
         self._moments = RollingMoments(BOLLINGER_WINDOW)
 
-    def on_minute(self, bar: MinuteBar) -> None:
-        self._moments.push(bar.close)
+    def on_minute(self) -> None:
+        self._moments.push(self.state.minutes.last_close)
 
     def values(self) -> np.ndarray:
         if not self._moments.full:
