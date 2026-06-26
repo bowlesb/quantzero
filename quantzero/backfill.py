@@ -24,14 +24,15 @@ from quantzero.raw_store import RawReplaySource, RawStore
 from quantzero.sources.alpaca import (
     data_feed,
     fetch_bars_multi,
-    fetch_quotes_day,
-    fetch_trades_day,
+    fetch_quotes_multi,
+    fetch_trades_multi,
     historical_client,
 )
 from quantzero.store import FeatureStore
 
 SET_VERSION = "0.1.0"
 RAW_FETCH_CHUNK = 200
+TICK_FETCH_CHUNK = 50  # trades/quotes are voluminous; smaller chunks bound per-request memory
 
 
 def trading_days(start: dt.date, end: dt.date) -> list[dt.date]:
@@ -76,11 +77,14 @@ def backfill_raw(
                 if store.write_bars(day_str, ticker, bars) is not None:
                     written += 1
         if with_ticks:
-            for ticker in tickers:
-                if not store.has_trades(day_str, ticker):
-                    store.write_trades(day_str, ticker, fetch_trades_day(client, ticker, day, feed))
-                if not store.has_quotes(day_str, ticker):
-                    store.write_quotes(day_str, ticker, fetch_quotes_day(client, ticker, day, feed))
+            missing_trades = [t for t in tickers if not store.has_trades(day_str, t)]
+            for chunk in _chunks(missing_trades, TICK_FETCH_CHUNK):
+                for ticker, trades in fetch_trades_multi(client, chunk, day, feed).items():
+                    store.write_trades(day_str, ticker, trades)
+            missing_quotes = [t for t in tickers if not store.has_quotes(day_str, t)]
+            for chunk in _chunks(missing_quotes, TICK_FETCH_CHUNK):
+                for ticker, quotes in fetch_quotes_multi(client, chunk, day, feed).items():
+                    store.write_quotes(day_str, ticker, quotes)
         print(f"  raw {day_str}: {len(missing)} bar-tickers (ticks={with_ticks}); {written} total")
     return written
 
