@@ -1,14 +1,19 @@
 """The ``Feature`` base class and the global registry.
 
-A feature owns a cache (built in ``setup``) that it updates incrementally through the
-``on_*`` hooks. ``values()`` then reads that cache in a few operations. A feature may be:
+A feature is bound at construction to the shared :class:`~quantzero.state.TickerState` —
+the per-ticker raw buffers the process appends to. The ``on_*`` hooks are *signals*, not
+data: they carry no payload. When ``on_minute`` fires, the newest bar is already in
+``state.minutes`` (read it via ``state.minutes.last_close`` etc., or index back N bars);
+when ``on_trade`` / ``on_quote`` fires, the newest tick is in ``state.last_trade`` /
+``state.last_quote``. A feature reacts by updating its own cache. ``values()`` then reads
+that cache in a few operations. A feature may be:
 
-  * *stateless* — leave the ``on_*`` hooks empty and read ``self.state.minutes`` slices in
+  * *stateless* — leave the ``on_*`` hooks empty and read ``state.minutes`` slices in
     ``values()`` (fine when the window is tiny);
-  * *stateful* — maintain running caches in ``on_minute`` / ``on_trade`` / ``on_quote`` so
-    ``values()`` is a pure read (the preferred pattern for anything non-trivial).
+  * *stateful* — maintain running caches in the hooks so ``values()`` is a pure read (the
+    preferred pattern for anything non-trivial).
 
-Either way the engine drives it identically, and historical replay feeds the same hooks
+Either way the engine drives it identically, and historical replay fires the same signals
 in time order — so a feature computes the same value live or backfilled.
 """
 
@@ -19,7 +24,6 @@ from typing import ClassVar
 
 import numpy as np
 
-from quantzero.events import MinuteBar, Quote, Trade
 from quantzero.state import TickerState
 
 
@@ -38,14 +42,14 @@ class Feature(ABC):
     def setup(self) -> None:
         """Build the feature-specific cache. Override; default is no state."""
 
-    def on_quote(self, quote: Quote) -> None:
-        """Update cache from a quote. Override if the feature uses quotes."""
+    def on_quote(self) -> None:
+        """Signal: a new quote is in ``state.last_quote``. Override if the feature uses quotes."""
 
-    def on_trade(self, trade: Trade) -> None:
-        """Update cache from a trade. Override if the feature uses trades."""
+    def on_trade(self) -> None:
+        """Signal: a new trade is in ``state.last_trade``. Override if the feature uses trades."""
 
-    def on_minute(self, bar: MinuteBar) -> None:
-        """Update cache from a closed minute bar. Called after the bar is in the ring."""
+    def on_minute(self) -> None:
+        """Signal: a new bar is in ``state.minutes``. Override to update the cache."""
 
     @abstractmethod
     def values(self) -> np.ndarray:

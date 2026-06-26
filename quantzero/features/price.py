@@ -7,7 +7,6 @@ import math
 import numpy as np
 
 from quantzero.caches import Ewma
-from quantzero.events import MinuteBar
 from quantzero.feature import Feature, register
 
 RETURN_HORIZONS = (1, 2, 5, 15, 30)
@@ -43,9 +42,10 @@ class Ema(Feature):
     def setup(self) -> None:
         self._emas = {span: Ewma(span) for span in EMA_SPANS}
 
-    def on_minute(self, bar: MinuteBar) -> None:
+    def on_minute(self) -> None:
+        close = self.state.minutes.last_close
         for ema in self._emas.values():
-            ema.push(bar.close)
+            ema.push(close)
 
     def values(self) -> np.ndarray:
         close = self.state.minutes.last_close
@@ -69,9 +69,10 @@ class Macd(Feature):
         self._macd = math.nan
         self._sig = math.nan
 
-    def on_minute(self, bar: MinuteBar) -> None:
-        self._fast.push(bar.close)
-        self._slow.push(bar.close)
+    def on_minute(self) -> None:
+        close = self.state.minutes.last_close
+        self._fast.push(close)
+        self._slow.push(close)
         self._macd = self._fast.value - self._slow.value
         self._signal.push(self._macd)
         self._sig = self._signal.value
@@ -115,11 +116,12 @@ class IntradayGap(Feature):
         self._open = math.nan
         self._session_high = -math.inf
 
-    def on_minute(self, bar: MinuteBar) -> None:
+    def on_minute(self) -> None:
+        minutes = self.state.minutes
         if self._open != self._open:
-            self._open = bar.open
-        if bar.high > self._session_high:
-            self._session_high = bar.high
+            self._open = minutes.last_open
+        if minutes.last_high > self._session_high:
+            self._session_high = minutes.last_high
 
     def values(self) -> np.ndarray:
         if not self._open > 0:

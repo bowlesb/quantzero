@@ -7,7 +7,6 @@ import math
 import numpy as np
 
 from quantzero.caches import RollingMoments, SessionSum
-from quantzero.events import MinuteBar
 from quantzero.feature import Feature, register
 
 REL_VOLUME_WINDOW = 20
@@ -25,10 +24,12 @@ class VwapDistance(Feature):
         self._pv = SessionSum()
         self._vol = SessionSum()
 
-    def on_minute(self, bar: MinuteBar) -> None:
-        typical = (bar.high + bar.low + bar.close) / 3.0
-        self._pv.push(typical * bar.volume)
-        self._vol.push(bar.volume)
+    def on_minute(self) -> None:
+        minutes = self.state.minutes
+        typical = (minutes.last_high + minutes.last_low + minutes.last_close) / 3.0
+        volume = minutes.last_volume
+        self._pv.push(typical * volume)
+        self._vol.push(volume)
 
     def values(self) -> np.ndarray:
         if self._vol.sum <= 0:
@@ -49,12 +50,13 @@ class VolumeProfile(Feature):
         self._moments = RollingMoments(REL_VOLUME_WINDOW)
         self._cum = SessionSum()
 
-    def on_minute(self, bar: MinuteBar) -> None:
-        self._moments.push(bar.volume)
-        self._cum.push(bar.volume)
+    def on_minute(self) -> None:
+        volume = self.state.minutes.last_volume
+        self._moments.push(volume)
+        self._cum.push(volume)
 
     def values(self) -> np.ndarray:
-        volume = float(self.state.minutes.volume[self.state.minutes.n - 1])
+        volume = self.state.minutes.last_volume
         mean = self._moments.mean
         rel = volume / mean if mean and mean > 0 else math.nan
         std = self._moments.std
@@ -72,12 +74,12 @@ class TradeIntensity(Feature):
     def setup(self) -> None:
         self._moments = RollingMoments(TRADE_COUNT_WINDOW)
 
-    def on_minute(self, bar: MinuteBar) -> None:
-        self._moments.push(float(bar.trade_count))
+    def on_minute(self) -> None:
+        self._moments.push(float(self.state.minutes.last_trade_count))
 
     def values(self) -> np.ndarray:
         mean = self._moments.mean
         std = self._moments.std
-        tc = float(self.state.minutes.trade_count[self.state.minutes.n - 1])
+        tc = float(self.state.minutes.last_trade_count)
         z = (tc - mean) / std if std and std > 0 else math.nan
         return np.array([mean, z])
