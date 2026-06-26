@@ -32,7 +32,7 @@ import numpy as np
 import polars as pl
 from alpaca.data.live import StockDataStream
 
-from quantzero.clock import ns_to_et
+from quantzero.clock import ET, ns_to_et
 from quantzero.config import alpaca_config, store_root
 from quantzero.run_live import live_quote_to_event, live_trade_to_event
 from quantzero.sharding import ShardedRunner, VectorSummary, assign_tickers
@@ -124,7 +124,9 @@ def run_backfill(
         )
 
 
-def run_live(tickers: list[str], n_workers: int, with_ticks: bool, sample_every: int) -> None:
+def run_live(
+    tickers: list[str], n_workers: int, with_ticks: bool, sample_every: int, warmup: bool
+) -> None:
     config = alpaca_config()
     store_config = StoreConfig(store_root(), SET_VERSION, "stream")
     print(f"sharded live: {len(tickers)} tickers across {n_workers} workers ({config.data_feed})")
@@ -133,6 +135,16 @@ def run_live(tickers: list[str], n_workers: int, with_ticks: bool, sample_every:
     runner = ShardedRunner(tickers, n_workers, store_config)
     runner.start()
     runner.drain_forever(LiveSink(sample_every))
+
+    if warmup:
+        # Replay today's bars-so-far through the workers (same engine path) so caches are
+        # warm and the live minutes we capture have the same full-day history backfill sees.
+        today = dt.datetime.now(ET).date()
+        dispatched = 0
+        for event in ReplaySource(tickers, today, with_ticks=False).iter_events():
+            runner.dispatch(event)
+            dispatched += 1
+        print(f"warmup: dispatched {dispatched} historical events for {today.isoformat()}")
 
     # Graceful shutdown: SIGINT/SIGTERM must stop the workers (sentinels -> drain writers ->
     # join), otherwise a hard kill orphans the spawned worker processes.
@@ -177,6 +189,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--with-ticks", action="store_true", help="subscribe/replay trades+quotes")
     parser.add_argument("--dates", default="", help="backfill: comma-separated YYYY-MM-DD")
     parser.add_argument("--sample-every", type=int, default=1, help="live: print every Nth vector")
+    parser.add_argument("--warmup", action="store_true", help="live: replay today's bars first")
     args = parser.parse_args(argv)
 
     tickers = resolve_tickers(args)
@@ -188,7 +201,7 @@ def main(argv: list[str] | None = None) -> None:
             parser.error("backfill requires --dates YYYY-MM-DD[,YYYY-MM-DD...]")
         run_backfill(tickers, args.workers, dates, args.with_ticks)
     else:
-        run_live(tickers, args.workers, args.with_ticks, args.sample_every)
+        run_live(tickers, args.workers, args.with_ticks, args.sample_every, args.warmup)
 
 
 if __name__ == "__main__":
