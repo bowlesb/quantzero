@@ -82,6 +82,25 @@ class FeatureStore:
             self.write(vector)
         return len(vectors)
 
+    def write_day(self, vectors: list[FeatureVector]) -> Path | None:
+        """Write a whole ticker-day as ONE parquet file (batched; used by backfill).
+
+        Avoids the per-minute small-file explosion of ``write``. All vectors must share a
+        ticker and ET date (a single ticker-day batch).
+        """
+        if not vectors:
+            return None
+        day = ns_to_et(vectors[0].ts_ns).date().isoformat()
+        directory = _partition_dir(self.root, self.set_version, self.source, day)
+        directory.mkdir(parents=True, exist_ok=True)
+        safe_ticker = vectors[0].ticker.replace("/", "_")
+        path = directory / f"data-{safe_ticker}.parquet"
+        frame = pl.DataFrame([vector_to_row(vector) for vector in vectors])
+        tmp = path.with_suffix(".parquet.tmp")
+        frame.write_parquet(tmp)
+        tmp.replace(path)
+        return path
+
 
 class StoreWriter:
     """Persists feature vectors on a background thread, off the compute critical path.

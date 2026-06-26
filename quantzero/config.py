@@ -30,5 +30,10 @@ def store_root() -> str:
     return os.environ.get("QZ_STORE_ROOT", "./store")
 
 
+def raw_root() -> str:
+    """Raw market-data store — kept separate from the feature store on purpose."""
+    return os.environ.get("QZ_RAW_ROOT", "./raw_store")
+
+
 def metrics_port() -> int:
     return int(os.environ.get("QZ_METRICS_PORT", "0"))

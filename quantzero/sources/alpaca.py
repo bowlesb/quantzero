@@ -67,6 +67,27 @@ def fetch_bars_day(
     return [bar_to_event(ticker, bar) for bar in bars]
 
 
+def fetch_bars_multi(
+    client: StockHistoricalDataClient,
+    tickers: list[str],
+    day: dt.date,
+    feed: DataFeed,
+) -> dict[str, list[MinuteBar]]:
+    """One ET day of 1-minute bars for many tickers in one request (chunked by the SDK)."""
+    start_ns, end_ns = date_to_ns_range(day)
+    request = StockBarsRequest(
+        symbol_or_symbols=list(tickers),
+        timeframe=TimeFrame.Minute,
+        start=dt.datetime.fromtimestamp(start_ns / 1e9, tz=dt.UTC),
+        end=dt.datetime.fromtimestamp(end_ns / 1e9, tz=dt.UTC),
+        adjustment=Adjustment.RAW,
+        feed=feed,
+    )
+    barset = client.get_stock_bars(request)
+    data = barset.data  # type: ignore[union-attr]
+    return {t: [bar_to_event(t, bar) for bar in data.get(t, [])] for t in tickers}
+
+
 def fetch_trades_day(
     client: StockHistoricalDataClient,
     ticker: str,
