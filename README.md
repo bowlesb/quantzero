@@ -41,6 +41,7 @@ per-minute percentiles, and a state-only baseline so each number is the feature'
 cp .env.example .env          # fill in ALPACA_KEY_ID / ALPACA_SECRET_KEY (or it's pre-seeded)
 make test                     # 21 tests
 make latency                  # per-feature latency harness
+make dashboard                # web UI: feature latency + feature store (http://localhost:8099)
 python -m quantzero.run_sim --tickers AAA,BBB --minutes 120 --store   # offline end-to-end
 
 # At the market open:
@@ -67,6 +68,7 @@ bars through the engine first (via REST) so caches are warm on the first live ba
 | `quantzero/universe.py` | daily tradable universe (see `docs/UNIVERSE.md`) |
 | `quantzero/sharding.py` | deterministic ticker→worker sharding; router + worker processes |
 | `quantzero/latency.py` | per-feature latency harness |
+| `quantzero/dashboard/` | FastAPI dashboard: feature-latency + feature-store views |
 | `quantzero/metrics.py` | Prometheus metrics (Grafana in `grafana/`) |
 
 See `MILESTONE.md` for status and `CLAUDE.md` for code standards.

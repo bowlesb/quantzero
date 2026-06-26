@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>quantzero dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d; --fg: #e6edf3;
+    --muted: #8b949e; --green: #3fb950; --accent: #58a6ff; --bar: #1f6feb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 16px; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: 0.5px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  nav { display: flex; gap: 4px; padding: 12px 24px 0; }
+  nav button { background: transparent; color: var(--muted); border: 1px solid transparent;
+    border-bottom: none; padding: 8px 16px; cursor: pointer; font: inherit;
+    border-radius: 6px 6px 0 0; }
+  nav button.active { color: var(--fg); background: var(--panel); border-color: var(--line); }
+  main { padding: 24px; }
+  .view { display: none; }
+  .view.active { display: block; }
+  .banner { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px;
+    background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.4); color: var(--green); }
+  .banner.warn { background: rgba(210,153,34,0.12); border-color: rgba(210,153,34,0.5); color: #d29922; }
+  .muted { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase;
+    letter-spacing: 0.5px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  .bar-wrap { background: #0b0f14; border-radius: 4px; height: 14px; width: 220px;
+    overflow: hidden; border: 1px solid var(--line); }
+  .bar { height: 100%; background: var(--bar); }
+  .ok { color: var(--green); }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+    background: rgba(63,185,80,0.15); color: var(--green); }
+  button.action { background: var(--accent); color: #0d1117; border: none; padding: 7px 14px;
+    border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
+  .cols { color: var(--muted); font-size: 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; max-width: 520px; }
+  h2 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;
+    margin: 24px 0 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>quantzero</h1>
+  <span class="sub">feature platform &mdash; latency &amp; store</span>
+</header>
+<nav>
+  <button id="tab-latency" class="active" onclick="show('latency')">Feature Latency</button>
+  <button id="tab-store" onclick="show('store')">Feature Store</button>
+</nav>
+<main>
+  <section id="view-latency" class="view active">
+    <div id="lat-banner" class="banner">measuring&hellip;</div>
+    <div style="margin-bottom:12px">
+      <button class="action" onclick="refreshLatency()">Re-measure</button>
+      <span id="lat-scenario" class="muted" style="margin-left:12px"></span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>group</th><th class="num">cols</th><th class="num">own cost</th>
+        <th class="num">values()</th><th class="num">p50</th><th class="num">p99</th>
+        <th>relative to 1ms budget</th><th>status</th>
+      </tr></thead>
+      <tbody id="lat-body"></tbody>
+    </table>
+  </section>
+
+  <section id="view-store" class="view">
+    <div id="store-summary" class="banner">loading&hellip;</div>
+    <h2>Persisted partitions</h2>
+    <table>
+      <thead><tr><th>version</th><th>source</th><th>date</th>
+        <th class="num">files</th><th class="num">rows</th></tr></thead>
+      <tbody id="part-body"></tbody>
+    </table>
+    <h2>Feature catalog</h2>
+    <table>
+      <thead><tr><th>group</th><th>version</th><th class="num">cols</th><th>columns</th></tr></thead>
+      <tbody id="cat-body"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const us = ns => (ns / 1000).toFixed(2) + ' µs';
+function show(name) {
+  for (const v of ['latency','store']) {
+    document.getElementById('view-'+v).classList.toggle('active', v===name);
+    document.getElementById('tab-'+v).classList.toggle('active', v===name);
+  }
+}
+function renderLatency(data) {
+  const budgetUs = data.budget_ns / 1000;
+  const s = data.scenario;
+  document.getElementById('lat-scenario').textContent =
+    `scenario: ${s.measure_minutes} minutes, ${s.quotes_per_minute} quotes + ${s.trades_per_minute} trades/min`;
+  const banner = document.getElementById('lat-banner');
+  banner.className = 'banner' + (data.all_under_budget ? '' : ' warn');
+  banner.innerHTML = data.all_under_budget
+    ? `&#10003; all ${data.groups.length} feature groups under 1ms &mdash; total own cost ${us(data.total_own_ns)} per bar`
+    : `&#9888; some groups exceed the 1ms budget`;
+  const body = document.getElementById('lat-body');
+  body.innerHTML = '';
+  const maxOwn = Math.max(...data.groups.map(g => g.own_mean_ns));
+  for (const g of data.groups) {
+    const pct = Math.max(2, (g.own_mean_ns / data.budget_ns) * 100);   // vs 1ms
+    const fill = Math.max(4, (g.own_mean_ns / maxOwn) * 100);          // vs slowest, for visibility
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td>${g.group}</td>` +
+      `<td class="num">${g.columns}</td>` +
+      `<td class="num">${us(g.own_mean_ns)}</td>` +
+      `<td class="num muted">${us(g.values_mean_ns)}</td>` +
+      `<td class="num muted">${us(g.p50_ns)}</td>` +
+      `<td class="num">${us(g.p99_ns)}</td>` +
+      `<td><div class="bar-wrap" title="${pct.toFixed(3)}% of 1ms budget">` +
+        `<div class="bar" style="width:${fill}%"></div></div></td>` +
+      `<td><span class="pill">&#10003; &lt; 1ms</span></td>`;
+    body.appendChild(tr);
+  }
+}
+async function loadLatency() {
+  const data = await (await fetch('/api/latency')).json();
+  renderLatency(data);
+}
+async function refreshLatency() {
+  document.getElementById('lat-banner').textContent = 're-measuring…';
+  await fetch('/api/latency/refresh', {method: 'POST'});
+  await loadLatency();
+}
+async function loadStore() {
+  const data = await (await fetch('/api/store')).json();
+  document.getElementById('store-summary').innerHTML =
+    `${data.n_groups} feature groups &bull; ${data.n_columns} columns &bull; store root <code>${data.store_root}</code>`;
+  const part = document.getElementById('part-body');
+  part.innerHTML = data.partitions.length ? '' :
+    '<tr><td colspan="5" class="muted">no vectors persisted yet (run a sim/live with --store)</td></tr>';
+  for (const p of data.partitions) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${p.version}</td><td>${p.source}</td><td>${p.date}</td>` +
+      `<td class="num">${p.files}</td><td class="num">${p.rows}</td>`;
+    part.appendChild(tr);
+  }
+  const cat = document.getElementById('cat-body');
+  cat.innerHTML = '';
+  for (const c of data.catalog) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${c.group}</td><td class="muted">${c.version}</td>` +
+      `<td class="num">${c.n_columns}</td><td class="cols">${c.columns.join(', ')}</td>`;
+    cat.appendChild(tr);
+  }
+}
+loadLatency();
+loadStore();
+</script>
+</body>
+</html>

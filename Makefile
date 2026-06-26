@@ -1,6 +1,6 @@
 PY ?= /home/ben/automated-day-trading-venv/bin/python3
 
-.PHONY: qa qa-check autoflake isort ruff format mypy test latency bench universe live
+.PHONY: qa qa-check autoflake isort ruff format mypy test latency bench universe live dashboard
 
 qa: autoflake isort ruff format mypy
 	@echo "QA complete."
@@ -41,3 +41,6 @@ universe:
 
 live:
 	$(PY) -m quantzero.run_live $(ARGS)
+
+dashboard:
+	$(PY) -m quantzero.dashboard.app

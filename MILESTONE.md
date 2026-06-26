@@ -19,6 +19,7 @@ minute bar for a ticker — with tests and a script runnable at market open.
 | Versioned, source-transparent feature store | ✅ done | `quantzero/store.py` |
 | Universe construction (~7k → ranked), documented | ✅ done | `quantzero/universe.py`, `docs/UNIVERSE.md` |
 | 32-process sharding (router + workers, parity-tested) | ✅ done | `quantzero/sharding.py`, `quantzero/run_sharded.py` |
+| Dashboard: feature-latency + feature-store views | ✅ done | `quantzero/dashboard/` (`make dashboard`) |
 
 ## Measured
 - Full 53-feature vector: ~34µs mean / ~46µs p99 per bar (simulation).
