@@ -1,8 +1,8 @@
-// Visual system for the coverage grid (v3 — light theme). WHITE = zero coverage = the page background, so an
-// absent cell and a zero-coverage cell look identical. Coverage DARKENS each cell toward its column's colour:
-// a trusted feature-group → dark BLUE, an untrusted group → dark RED, a raw tape layer → dark SLATE. So the
-// darker a cell, the more of the full universe that column covers that date; the colour tells you trust at a
-// glance. There is no trust toggle — trust is always shown via blue-vs-red.
+// Visual system for the coverage grid (light theme). WHITE = zero coverage = the page
+// background, so an absent cell and a zero-coverage cell look identical. Coverage DARKENS
+// each cell toward its column's colour: a feature group -> BLUE, a raw tape layer -> SLATE.
+// There is no "trust" distinction — parity is by design (live and backfill run the same
+// code), so a feature is a feature; the colour only tells raw-substrate from feature group.
 
 export const COLORS = {
   bg: "#ffffff", // the page / grid background == a zero-coverage cell
@@ -13,14 +13,13 @@ export const COLORS = {
   text: "#1b2430",
   textDim: "#4a5563",
   muted: "#7a8694",
-  trustedDark: "#0b3d91", // trusted group, fully covered
-  untrustedDark: "#a01722", // untrusted group, fully covered
+  groupDark: "#0b3d91", // feature group, fully covered
   rawDark: "#3a4554", // raw tape layer, fully covered (neutral slate)
   accent: "#1f6feb",
 } as const;
 
-// Canvas cell sizing (CSS px before devicePixelRatio scaling). ~66 columns fit one screen; the date axis
-// (hundreds of rows) scrolls vertically. A hairline gap reads as crisp tiles.
+// Canvas cell sizing (CSS px before devicePixelRatio scaling). A hairline gap reads as
+// crisp tiles; the date axis scrolls vertically.
 export const CELL = {
   w: 19,
   h: 9,
@@ -38,8 +37,7 @@ function hexToRgb(hex: string): Rgb {
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
 }
 
-const TRUSTED_RGB = hexToRgb(COLORS.trustedDark);
-const UNTRUSTED_RGB = hexToRgb(COLORS.untrustedDark);
+const GROUP_RGB = hexToRgb(COLORS.groupDark);
 const RAW_RGB = hexToRgb(COLORS.rawDark);
 
 function mix(a: Rgb, b: Rgb, t: number): string {
@@ -49,24 +47,22 @@ function mix(a: Rgb, b: Rgb, t: number): string {
   return `rgb(${r},${g},${bl})`;
 }
 
-// The dark end for a column: trusted → blue, untrusted → red, raw → slate.
-export function columnDark(kind: ColumnKind, trusted: boolean): Rgb {
-  if (kind === "raw") return RAW_RGB;
-  return trusted ? TRUSTED_RGB : UNTRUSTED_RGB;
+// The dark end for a column: a feature group -> blue, a raw layer -> slate.
+export function columnDark(kind: ColumnKind): Rgb {
+  return kind === "raw" ? RAW_RGB : GROUP_RGB;
 }
 
-// The fill a cell paints: WHITE at zero coverage → the column's dark colour at full. Returns null at byte 0 so
-// an absent cell paints nothing (the white background shows through — identical to zero coverage). A gentle
-// gamma lift keeps thin coverage visible against white.
-export function cellColor(coverageByte: number, kind: ColumnKind, trusted: boolean): string | null {
+// The fill a cell paints: WHITE at zero coverage -> the column's dark colour at full.
+// Returns null at byte 0 so an absent cell paints nothing. A gentle gamma lift keeps thin
+// coverage visible against white.
+export function cellColor(coverageByte: number, kind: ColumnKind): string | null {
   if (coverageByte <= 0) return null;
   const t = Math.pow(coverageByte / 255, 0.7);
-  return mix(WHITE, columnDark(kind, trusted), t);
+  return mix(WHITE, columnDark(kind), t);
 }
 
 // Sample CSS for the legend swatches (full-coverage dark end of each kind).
 export const LEGEND = {
-  trustedDark: `rgb(${TRUSTED_RGB.join(",")})`,
-  untrustedDark: `rgb(${UNTRUSTED_RGB.join(",")})`,
+  groupDark: `rgb(${GROUP_RGB.join(",")})`,
   rawDark: `rgb(${RAW_RGB.join(",")})`,
 } as const;

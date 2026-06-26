@@ -1529,3 +1529,12 @@ body {
   color: #c0392b;
   font-weight: 600;
 }
+
+/* Feature-group columns/headers are a single colour now — no trust distinction. */
+.ramp-group {
+  background: linear-gradient(90deg, #fff, var(--trusted));
+}
+.col-label.k-group span {
+  color: var(--trusted);
+  font-weight: 600;
+}

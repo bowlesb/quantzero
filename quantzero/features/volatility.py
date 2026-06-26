@@ -59,9 +59,11 @@ class RealizedVolatility(Feature):
         self._prev_close = close
 
     def values(self) -> np.ndarray:
+        # max(_, 0): the running sum-of-squares can drift slightly negative from float
+        # cancellation over a long session, which would make math.sqrt raise.
         return np.array(
             [
-                math.sqrt(self._sumsq[w].sum) if self._sumsq[w].count else math.nan
+                math.sqrt(max(self._sumsq[w].sum, 0.0)) if self._sumsq[w].count else math.nan
                 for w in VOL_WINDOWS
             ]
         )

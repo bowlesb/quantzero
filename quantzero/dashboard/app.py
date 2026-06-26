@@ -130,8 +130,7 @@ def _latency_payload() -> dict[str, object]:
 
 def _columns() -> list[dict[str, object]]:
     columns: list[dict[str, object]] = [
-        {"kind": "raw", "key": key, "label": label, "trusted": False, "features": []}
-        for key, label in RAW_LAYERS
+        {"kind": "raw", "key": key, "label": label, "features": []} for key, label in RAW_LAYERS
     ]
     for cls in default_features():
         columns.append(
@@ -139,7 +138,6 @@ def _columns() -> list[dict[str, object]]:
                 "kind": "group",
                 "key": cls.name,
                 "label": cls.name,
-                "trusted": True,
                 "features": [f"{cls.name}_{column}" for column in cls.columns],
             }
         )

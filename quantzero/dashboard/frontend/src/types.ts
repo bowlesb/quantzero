@@ -6,7 +6,6 @@ export interface GridColumn {
   key: string;
   label: string;
   kind: ColumnKind; // "raw" (tape layer) | "group" (feature group)
-  trusted: boolean;
   features: string[]; // groups only: the feature inventory, for the horizontal expand
 }
 

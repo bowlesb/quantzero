@@ -52,7 +52,6 @@ export function App() {
           kind: "group",
           key: col.key,
           label: col.label,
-          trusted: col.trusted,
           coverageCol: idx,
           groupKey: col.key,
           expandable: col.features.length > 0,
@@ -64,8 +63,7 @@ export function App() {
               kind: "feature",
               key: `${col.key}::${feature}`,
               label: feature,
-              trusted: col.trusted,
-              coverageCol: idx,
+                  coverageCol: idx,
               groupKey: col.key,
               expandable: false,
               expanded: false,
@@ -77,7 +75,6 @@ export function App() {
           kind: "raw",
           key: col.key,
           label: col.label,
-          trusted: false,
           coverageCol: idx,
           groupKey: null,
           expandable: false,
@@ -127,7 +124,7 @@ export function App() {
                   <span className="sw sw-empty" /> none
                 </span>
                 <span className="legend-item">
-                  <span className="ramp ramp-trusted" /> feature group
+                  <span className="ramp ramp-group" /> feature group
                 </span>
                 <span className="legend-item">
                   <span className="ramp ramp-raw" /> raw tape layer

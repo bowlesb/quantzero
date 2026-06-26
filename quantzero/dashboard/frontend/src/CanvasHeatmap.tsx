@@ -9,7 +9,6 @@ export interface DisplayColumn {
   kind: "raw" | "group" | "feature";
   key: string;
   label: string;
-  trusted: boolean;
   coverageCol: number;
   groupKey: string | null;
   expandable: boolean;
@@ -59,7 +58,6 @@ function buildDisplayColumns(matrix: StoreGridMatrix, expanded: Set<string>): Di
         kind: "group",
         key: col.key,
         label: col.label,
-        trusted: col.trusted,
         coverageCol: idx,
         groupKey: col.key,
         expandable: col.features.length > 0,
@@ -71,8 +69,7 @@ function buildDisplayColumns(matrix: StoreGridMatrix, expanded: Set<string>): Di
             kind: "feature",
             key: `${col.key}::${feature}`,
             label: feature,
-            trusted: col.trusted,
-            coverageCol: idx,
+                coverageCol: idx,
             groupKey: col.key,
             expandable: false,
             expanded: false,
@@ -84,7 +81,6 @@ function buildDisplayColumns(matrix: StoreGridMatrix, expanded: Set<string>): Di
         kind: "raw",
         key: col.key,
         label: col.label,
-        trusted: false,
         coverageCol: idx,
         groupKey: null,
         expandable: false,
@@ -173,7 +169,7 @@ export function CanvasHeatmap({
       for (let c = 0; c < nCols; c++) {
         const dc = displayCols[c];
         const byte = coverageRow[dc.coverageCol] ?? 0;
-        const fill = cellColor(byte, dc.kind === "raw" ? "raw" : "group", dc.trusted);
+        const fill = cellColor(byte, dc.kind === "raw" ? "raw" : "group");
         if (fill == null) continue;
         ctx.fillStyle = fill;
         ctx.fillRect(c * CELL.w, y, CELL.w - CELL.gap, CELL.h - CELL.gap);
@@ -282,8 +278,7 @@ export function CanvasHeatmap({
               className={
                 "col-label" +
                 ` k-${dc.kind}` +
-                (dc.trusted ? " trusted" : dc.kind === "group" ? " untrusted" : "") +
-                (highlightCol === dc.groupKey && dc.kind === "group" ? " active" : "")
+                                (highlightCol === dc.groupKey && dc.kind === "group" ? " active" : "")
               }
               style={{ left: c * CELL.w, width: CELL.w }}
               title={
