@@ -60,7 +60,7 @@ def bench_feature(feature_cls: type[Feature], warmup: int, iters: int) -> tuple[
     feature = feature_cls("BENCH", state)
     for bar in bars[:warmup]:
         state.on_minute(bar)
-        feature.on_minute(bar)
+        feature.on_minute()
         feature.values()
 
     samples = np.empty(iters, dtype=np.float64)
@@ -68,7 +68,7 @@ def bench_feature(feature_cls: type[Feature], warmup: int, iters: int) -> tuple[
         bar = bars[warmup + i]
         state.on_minute(bar)
         start = time.perf_counter_ns()
-        feature.on_minute(bar)
+        feature.on_minute()
         feature.values()
         samples[i] = time.perf_counter_ns() - start
     return float(samples.mean()), float(np.percentile(samples, 99))
