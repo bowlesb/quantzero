@@ -15,8 +15,10 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import multiprocessing as mp
+import os
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from quantzero.config import AlpacaConfig, alpaca_config, raw_root, store_root
@@ -34,7 +36,10 @@ from quantzero.store import FeatureStore
 
 SET_VERSION = "0.1.0"
 RAW_FETCH_CHUNK = 200  # bars are tiny -> many symbols per request
-TICK_CONCURRENCY = 8  # parallel PER-TICKER tick fetches (bounds memory to one name at a time)
+# Two-level download fan-out: PROCESSES x THREADS. Threads overlap the network waits (the
+# work is mostly I/O); processes parallelize the response parsing + parquet writing (the CPU
+# part the GIL would otherwise serialize). Default to all cores x 128 threads.
+DEFAULT_THREADS = 128
 
 # Each fetch thread reuses its own historical client (the SDK's session isn't shared-safe).
 _thread_local = threading.local()
@@ -63,6 +68,19 @@ def _chunks(items: list[str], size: int) -> list[list[str]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+def _fetch_bars_chunk(args: tuple) -> int:
+    """Fetch one (day, symbol-chunk) of bars and write them. Returns ticker-days written."""
+    cfg, raw_root_path, day, day_str, feed, chunk = args
+    store = RawStore(raw_root_path)
+    client = _thread_client(cfg)
+    data = fetch_bars_multi(client, chunk, day, feed)  # type: ignore[arg-type]
+    written = 0
+    for ticker, bars in data.items():
+        if store.write_bars(day_str, ticker, bars) is not None:
+            written += 1
+    return written
+
+
 def _fetch_ticks_one(args: tuple) -> None:
     """Fetch one ticker-day's trades and/or quotes (per-ticker -> memory-safe). Idempotent."""
     cfg, raw_root_path, day, day_str, feed, ticker, do_trades, do_quotes = args
@@ -74,6 +92,50 @@ def _fetch_ticks_one(args: tuple) -> None:
         store.write_quotes(day_str, ticker, fetch_quotes_day(client, ticker, day, feed))  # type: ignore[arg-type]
 
 
+def _thread_run(fn: Callable[[tuple], object], jobs: list, threads: int) -> int:
+    """Run jobs across a thread pool inside one process (overlaps network waits)."""
+    total = 0
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        for result in pool.map(fn, jobs):
+            total += result if isinstance(result, int) else 0
+    return total
+
+
+def _bar_batch(payload: tuple) -> int:
+    batch, threads = payload
+    return _thread_run(_fetch_bars_chunk, batch, threads)
+
+
+def _tick_batch(payload: tuple) -> int:
+    batch, threads = payload
+    _thread_run(_fetch_ticks_one, batch, threads)
+    return 0
+
+
+def _split(items: list, n: int) -> list[list]:
+    """Round-robin split into <= n roughly-equal batches (one per process)."""
+    buckets: list[list] = [[] for _ in range(max(n, 1))]
+    for i, item in enumerate(items):
+        buckets[i % len(buckets)].append(item)
+    return [b for b in buckets if b]
+
+
+def _run_batches(
+    jobs: list, batch_fn: Callable[[tuple], int], processes: int, threads: int, label: str
+) -> int:
+    if not jobs:
+        return 0
+    batches = _split(jobs, processes)
+    total = 0
+    with mp.get_context("spawn").Pool(len(batches)) as pool:
+        for done, count in enumerate(
+            pool.imap_unordered(batch_fn, [(batch, threads) for batch in batches]), start=1
+        ):
+            total += count
+            print(f"  {label}: {done}/{len(batches)} process-batches done", flush=True)
+    return total
+
+
 def backfill_raw(
     tickers: list[str],
     days: list[dt.date],
@@ -81,39 +143,36 @@ def backfill_raw(
     config: AlpacaConfig | None = None,
     fetch_trades: bool = False,
     fetch_quotes: bool = False,
-    concurrency: int = TICK_CONCURRENCY,
+    processes: int | None = None,
+    threads: int = DEFAULT_THREADS,
 ) -> int:
     """Stage 1: land raw bars (and optionally trades/quotes) from Alpaca. Idempotent/resumable.
 
-    Bars are fetched many-symbols-per-request (tiny). Trades and quotes are fetched PER TICKER
-    in parallel — so memory is bounded to one name at a time (most of the 7000+ universe is
-    thin and fast) and a heavy name never co-buffers with 50 others. Trades and quotes are
-    separate flags so you can keep different lookbacks (e.g. trades 6mo, quotes 5wk).
+    Fan-out is PROCESSES x THREADS. Bars go many-symbols-per-request across (day, chunk);
+    trades/quotes go PER TICKER so memory is bounded to one name at a time. Trades and quotes
+    are separate flags so they can keep different lookbacks (e.g. trades 6mo, quotes 5wk).
     """
     cfg = config or alpaca_config()
-    client = historical_client(cfg)
     feed = data_feed(cfg)
     store = RawStore(raw_root_path)
-    written = 0
-    for day in days:
-        day_str = day.isoformat()
-        missing = [t for t in tickers if not store.has_bars(day_str, t)]
-        for chunk in _chunks(missing, RAW_FETCH_CHUNK):
-            data = fetch_bars_multi(client, chunk, day, feed)
-            for ticker, bars in data.items():
-                if store.write_bars(day_str, ticker, bars) is not None:
-                    written += 1
-        if fetch_trades or fetch_quotes:
-            jobs = [
-                (cfg, raw_root_path, day, day_str, feed, ticker, fetch_trades, fetch_quotes)
-                for ticker in tickers
-            ]
-            with ThreadPoolExecutor(max_workers=concurrency) as pool:
-                list(pool.map(_fetch_ticks_one, jobs))
-        print(
-            f"  raw {day_str}: {len(missing)} bar-tickers "
-            f"(trades={fetch_trades} quotes={fetch_quotes}); {written} bar-days total"
+    procs = processes or (os.cpu_count() or 1)
+
+    bar_jobs = [
+        (cfg, raw_root_path, day, day.isoformat(), feed, chunk)
+        for day in days
+        for chunk in _chunks(
+            [t for t in tickers if not store.has_bars(day.isoformat(), t)], RAW_FETCH_CHUNK
         )
+    ]
+    written = _run_batches(bar_jobs, _bar_batch, procs, threads, "bars")
+
+    if fetch_trades or fetch_quotes:
+        tick_jobs = [
+            (cfg, raw_root_path, day, day.isoformat(), feed, ticker, fetch_trades, fetch_quotes)
+            for day in days
+            for ticker in tickers
+        ]
+        _run_batches(tick_jobs, _tick_batch, procs, threads, "ticks")
     return written
 
 
@@ -167,8 +226,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--quotes", action="store_true", help="fetch quotes")
     parser.add_argument("--with-ticks", action="store_true", help="fetch both trades and quotes")
     parser.add_argument(
-        "--concurrency", type=int, default=TICK_CONCURRENCY, help="parallel tick fetch"
+        "--processes", type=int, default=None, help="fetch processes (default: all cores)"
     )
+    parser.add_argument("--threads", type=int, default=DEFAULT_THREADS, help="threads per process")
     args = parser.parse_args(argv)
     fetch_trades = args.trades or args.with_ticks
     fetch_quotes = args.quotes or args.with_ticks
@@ -193,7 +253,8 @@ def main(argv: list[str] | None = None) -> None:
             raw_root(),
             fetch_trades=fetch_trades,
             fetch_quotes=fetch_quotes,
-            concurrency=args.concurrency,
+            processes=args.processes,
+            threads=args.threads,
         )
         print(
             f"stage raw: wrote {n} bar-days to {raw_root()} in {time.perf_counter()-started:.1f}s"
