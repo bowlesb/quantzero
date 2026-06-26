@@ -21,6 +21,9 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
+from alpaca.common.exceptions import APIError
+from requests.exceptions import RequestException
+
 from quantzero.config import AlpacaConfig, alpaca_config, raw_root, store_root
 from quantzero.driver import EngineDriver
 from quantzero.features import default_features
@@ -36,10 +39,11 @@ from quantzero.store import FeatureStore
 
 SET_VERSION = "0.1.0"
 RAW_FETCH_CHUNK = 200  # bars are tiny -> many symbols per request
-# Two-level download fan-out: PROCESSES x THREADS. Threads overlap the network waits (the
-# work is mostly I/O); processes parallelize the response parsing + parquet writing (the CPU
-# part the GIL would otherwise serialize). Default to all cores x 128 threads.
-DEFAULT_THREADS = 128
+# Two-level download fan-out: PROCESSES x THREADS. Threads overlap the network waits;
+# processes parallelize the response parsing + parquet writing (the GIL-bound part). NOTE:
+# the download is ultimately bottlenecked by Alpaca's REST RATE LIMIT, not the machine — past
+# a few hundred in-flight requests you just trip 429s and burn time in backoff. Tune to taste.
+DEFAULT_THREADS = 16
 
 # Each fetch thread reuses its own historical client (the SDK's session isn't shared-safe).
 _thread_local = threading.local()
@@ -69,11 +73,19 @@ def _chunks(items: list[str], size: int) -> list[list[str]]:
 
 
 def _fetch_bars_chunk(args: tuple) -> int:
-    """Fetch one (day, symbol-chunk) of bars and write them. Returns ticker-days written."""
+    """Fetch one (day, symbol-chunk) of bars and write them. Returns ticker-days written.
+
+    Per-job error isolation: a chunk that exhausts retries is SKIPPED (logged via the return),
+    never propagated — so one rate-limited request can't crash the whole job, and a re-run
+    (idempotent) picks up whatever was skipped.
+    """
     cfg, raw_root_path, day, day_str, feed, chunk = args
     store = RawStore(raw_root_path)
     client = _thread_client(cfg)
-    data = fetch_bars_multi(client, chunk, day, feed)  # type: ignore[arg-type]
+    try:
+        data = fetch_bars_multi(client, chunk, day, feed)  # type: ignore[arg-type]
+    except (APIError, RequestException):
+        return 0
     written = 0
     for ticker, bars in data.items():
         if store.write_bars(day_str, ticker, bars) is not None:
@@ -81,15 +93,22 @@ def _fetch_bars_chunk(args: tuple) -> int:
     return written
 
 
-def _fetch_ticks_one(args: tuple) -> None:
-    """Fetch one ticker-day's trades and/or quotes (per-ticker -> memory-safe). Idempotent."""
+def _fetch_ticks_one(args: tuple) -> int:
+    """Fetch one ticker-day's trades and/or quotes (per-ticker -> memory-safe). Idempotent.
+
+    Errors are isolated per ticker-day (skip + resume), never crashing the job.
+    """
     cfg, raw_root_path, day, day_str, feed, ticker, do_trades, do_quotes = args
     store = RawStore(raw_root_path)
     client = _thread_client(cfg)
-    if do_trades and not store.has_trades(day_str, ticker):
-        store.write_trades(day_str, ticker, fetch_trades_day(client, ticker, day, feed))  # type: ignore[arg-type]
-    if do_quotes and not store.has_quotes(day_str, ticker):
-        store.write_quotes(day_str, ticker, fetch_quotes_day(client, ticker, day, feed))  # type: ignore[arg-type]
+    try:
+        if do_trades and not store.has_trades(day_str, ticker):
+            store.write_trades(day_str, ticker, fetch_trades_day(client, ticker, day, feed))  # type: ignore[arg-type]
+        if do_quotes and not store.has_quotes(day_str, ticker):
+            store.write_quotes(day_str, ticker, fetch_quotes_day(client, ticker, day, feed))  # type: ignore[arg-type]
+    except (APIError, RequestException):
+        return 0
+    return 1
 
 
 def _thread_run(fn: Callable[[tuple], object], jobs: list, threads: int) -> int:

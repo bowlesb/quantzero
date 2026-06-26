@@ -8,6 +8,7 @@ the exact same events through the engine in the exact same per-minute order as l
 from __future__ import annotations
 
 import datetime as dt
+import random
 import time
 from collections.abc import Callable, Iterator
 from typing import TypeVar
@@ -23,17 +24,18 @@ from quantzero.config import AlpacaConfig, alpaca_config
 from quantzero.events import Event, MinuteBar, Quote, Trade
 from quantzero.sources.base import order_events_per_minute
 
-_MAX_RETRIES = 5
+_MAX_RETRIES = 8
 _BACKOFF_BASE_S = 1.0
-_BACKOFF_CAP_S = 30.0
+_BACKOFF_CAP_S = 60.0
 _T = TypeVar("_T")
 
 
 def _with_retry(call: Callable[[], _T]) -> _T:
-    """Run an Alpaca request with bounded exponential backoff on transient APIErrors.
+    """Run an Alpaca request with bounded exponential backoff + jitter on transient APIErrors.
 
-    This is what keeps a long, universe-scale backfill from dying on a single 429 / 5xx /
-    network blip — the request is retried rather than aborting the whole job.
+    Keeps a universe-scale backfill from dying on a 429 / 5xx / network blip. Jitter spreads
+    retries so a swarm of rate-limited threads doesn't re-fire in lockstep (which would just
+    re-trip the limit at the same instant).
     """
     attempt = 0
     while True:
@@ -43,7 +45,8 @@ def _with_retry(call: Callable[[], _T]) -> _T:
             attempt += 1
             if attempt > _MAX_RETRIES:
                 raise
-            time.sleep(min(_BACKOFF_BASE_S * 2 ** (attempt - 1), _BACKOFF_CAP_S))
+            backoff = min(_BACKOFF_BASE_S * 2 ** (attempt - 1), _BACKOFF_CAP_S)
+            time.sleep(backoff * (0.5 + random.random()))
 
 
 def _utc(start_ns: int) -> dt.datetime:
