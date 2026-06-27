@@ -4,10 +4,10 @@ Ported (simplified) from the quant-fp design. Two properties we keep:
 
   * **Versioning** lives in the path (``v=<set_version>``); a new version writes alongside
     the old, and readers select a version explicitly.
-  * **Source transparency**: rows are written under ``source=backfill|stream|sim`` but the
-    reader merges them so callers never branch on provenance. Backfill is truth; live
-    (stream/sim) fills only the ``(ticker, minute)`` keys not yet backfilled. Ties break
-    latest-write-wins by file mtime.
+  * **Source transparency**: rows are written under ``source=backfill|stream`` but the reader
+    merges them so callers never branch on provenance. Backfill is truth; live ``stream`` fills
+    only the ``(ticker, minute)`` keys not yet backfilled. Ties break latest-write-wins by
+    file mtime. (Simulation never writes here — it's a latency/correctness test, not a source.)
 
 Layout::
 
@@ -30,7 +30,7 @@ from quantzero.clock import date_to_ns_range, ns_to_et
 from quantzero.engine import FeatureVector
 
 KEY_COLUMNS = ("ticker", "ts_ns")
-PROVISIONAL_SOURCES = ("stream", "sim")
+VALID_SOURCES = ("backfill", "stream")  # settled truth + live provisional; sim never persists
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,7 @@ class FeatureStore:
     """Writes feature vectors to one ``(set_version, source)`` partition tree."""
 
     def __init__(self, root: str | Path, set_version: str, source: str) -> None:
-        if source not in ("backfill", *PROVISIONAL_SOURCES):
+        if source not in VALID_SOURCES:
             raise ValueError(f"unknown source {source!r}")
         self.root = Path(root)
         self.set_version = set_version
@@ -184,7 +184,7 @@ def read_features(
     """Read features for a time range, merging sources transparently.
 
     ``source="auto"`` returns backfill where present and fills remaining keys from the
-    provisional source (``stream`` or ``sim``). Returns rows keyed by (ticker, ts_ns).
+    provisional source (``stream``). Returns rows keyed by (ticker, ts_ns).
     """
     if source == "auto":
         backfill = _scan_source(root, set_version, "backfill", start_ns, end_ns)

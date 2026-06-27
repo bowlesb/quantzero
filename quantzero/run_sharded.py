@@ -92,20 +92,18 @@ class LiveSink:
         )
 
 
-def run_sim(tickers: list[str], n_workers: int, minutes: int, seed: int, store: bool) -> None:
+def run_sim(tickers: list[str], n_workers: int, minutes: int, seed: int) -> None:
+    """Drive the simulation across workers — a sharding/latency test. Writes nothing."""
     print(f"sharded simulation: {len(tickers)} tickers across {n_workers} workers")
     _print_assignment(tickers, n_workers)
     config = SimulationConfig(tickers=tickers, n_minutes=minutes, seed=seed)
-    store_config = StoreConfig(store_root(), SET_VERSION, "sim") if store else None
-    runner = ShardedRunner(tickers, n_workers, store_config)
+    runner = ShardedRunner(tickers, n_workers)
     started = time.perf_counter()
     summaries = runner.run_source(SimulationSource(config))
     elapsed = time.perf_counter() - started
     compute = np.array([s.compute_ns for s in summaries], dtype=np.float64) / 1000.0
     print(f"computed {len(summaries)} vectors in {elapsed:.2f}s")
     print(f"compute per vector: mean={compute.mean():.1f}us p99={np.percentile(compute, 99):.1f}us")
-    if store:
-        print(f"persisted to {store_root()} (source=sim, async)")
 
 
 def run_backfill(
@@ -185,7 +183,6 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--minutes", type=int, default=120, help="sim only")
     parser.add_argument("--seed", type=int, default=7, help="sim only")
-    parser.add_argument("--store", action="store_true", help="sim only: persist as source=sim")
     parser.add_argument("--with-ticks", action="store_true", help="subscribe/replay trades+quotes")
     parser.add_argument("--dates", default="", help="backfill: comma-separated YYYY-MM-DD")
     parser.add_argument("--sample-every", type=int, default=1, help="live: print every Nth vector")
@@ -194,7 +191,7 @@ def main(argv: list[str] | None = None) -> None:
 
     tickers = resolve_tickers(args)
     if args.mode == "sim":
-        run_sim(tickers, args.workers, args.minutes, args.seed, args.store)
+        run_sim(tickers, args.workers, args.minutes, args.seed)
     elif args.mode == "backfill":
         dates = [dt.date.fromisoformat(d.strip()) for d in args.dates.split(",") if d.strip()]
         if not dates:
